@@ -1,4 +1,4 @@
-import { MarkdownPostProcessorContext, Plugin, TFile } from "obsidian";
+import { MarkdownPostProcessorContext, Plugin, TFile, MarkdownRenderer } from "obsidian";
 import Processor from "./processor";
 import { inlinePlugin } from "./live-preview";
 
@@ -9,13 +9,16 @@ export default class MarkdownAttributes extends Plugin {
 
         this.registerMarkdownPostProcessor(this.postprocessor.bind(this));
         this.registerEditorExtension(inlinePlugin());
+
+        // Register the deferred renderer
+        this.registerMarkdownCodeBlockProcessor("attributes", this.deferredRenderer.bind(this));
     }
 
     async postprocessor(
-        topElement: HTMLElement,
+        element: HTMLElement,
         ctx: MarkdownPostProcessorContext
     ) {
-        const child = topElement.firstElementChild;
+        const child = element.firstElementChild;
         if (!child) return;
         let str: string;
 
@@ -27,10 +30,10 @@ export default class MarkdownAttributes extends Plugin {
          */
         if (child instanceof HTMLPreElement) {
             /** If getSectionInfo returns null, stop processing. */
-            if (!ctx.getSectionInfo(topElement)) return;
+            if (!ctx.getSectionInfo(element)) return;
 
             /** Pull the Section data. */
-            const { lineStart } = ctx.getSectionInfo(topElement);
+            const { lineStart } = ctx.getSectionInfo(element);
 
             const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
             if (!(file instanceof TFile)) return;
@@ -56,10 +59,10 @@ export default class MarkdownAttributes extends Plugin {
             (child.hasClass("math") && child.hasClass("math-block")) ||
             child.hasClass("callout")
         ) {
-            if (!ctx.getSectionInfo(topElement)) return;
+            if (!ctx.getSectionInfo(element)) return;
 
             /** Pull the Section data. */
-            const { text, lineEnd } = ctx.getSectionInfo(topElement);
+            const { text, lineEnd } = ctx.getSectionInfo(element);
 
             /** Callouts include the block level attribute */
             const adjustment = child.hasClass("callout") ? 0 : 1;
@@ -81,7 +84,7 @@ export default class MarkdownAttributes extends Plugin {
                 let [attribute_string] = source.match(Processor.ONLY_RE) ?? [];
                 child.prepend(new Text(attribute_string));
 
-                str = topElement.innerText;
+                str = element.innerText;
             }
         }
 
@@ -97,11 +100,42 @@ export default class MarkdownAttributes extends Plugin {
         }
 
         /** Test if the element contains attributes. */
-        if (!Processor.BASE_RE.test(str ?? topElement.innerText)) return;
+        if (!Processor.BASE_RE.test(str ?? element.innerText)) return;
 
         /** Parse the element using the Processor. */
         if (!(child instanceof HTMLElement)) return;
         Processor.parse(child);
+    }
+
+    async deferredRenderer(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
+        // Parse the source for attributes
+        const parsed = Processor.parse(source);
+
+        // Create a temporary div to render the markdown
+        const tempDiv = createDiv();
+        await MarkdownRenderer.renderMarkdown(source, tempDiv, ctx.sourcePath, this);
+
+        // Apply attributes to the rendered elements
+        for (const item of parsed) {
+            const { attributes, text } = item;
+            const elements = tempDiv.querySelectorAll(`[data-original-text="${text}"]`);
+            elements.forEach(element => {
+                if (element instanceof HTMLElement) {
+                    for (const [key, value] of attributes) {
+                        if (key === "class") {
+                            element.addClass(value);
+                        } else if (!value) {
+                            element.setAttribute(key, "true");
+                        } else {
+                            element.setAttribute(key, value);
+                        }
+                    }
+                }
+            });
+        }
+
+        // Move the rendered content to the final element
+        el.appendChild(tempDiv);
     }
 
     async onunload() {

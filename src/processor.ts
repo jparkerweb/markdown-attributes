@@ -13,28 +13,29 @@ export default class Processor {
 
     constructor() {}
 
-    static parse(el: HTMLElement): ElementWithAttributes[];
-    static parse(el: string): ElementWithAttributes[];
-    static parse(el: string | HTMLElement) {
-        if (typeof el == "string") {
+    static parse(el: HTMLElement | string): ElementWithAttributes[] {
+        if (typeof el === "string") {
             return new Processor().parseLine(el);
         } else {
             return new Processor().recurseAndParseElements(el);
         }
     }
-    parseLine(text: string) {
-        const elements: ElementWithAttributes[] = [];
-        // Parse out the attribute string.
-        let attribute_strings = text.matchAll(
-            new RegExp(Processor.END_RE.source, "gm")
-        );
 
-        for (const [_, match] of attribute_strings) {
-            elements.push({
-                attributes: this.getAttrs(match),
-                text: match
-            });
+    parseLine(text: string): ElementWithAttributes[] {
+        const elements: ElementWithAttributes[] = [];
+        const lines = text.split('\n');
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (Processor.BASE_RE.test(line)) {
+                const [original, attribute_string] = line.match(Processor.BASE_RE) ?? [];
+                elements.push({
+                    attributes: this.getAttrs(attribute_string),
+                    text: lines[i - 1] || '', // Use the previous line as the text to apply attributes to
+                });
+            }
         }
+        
         return elements;
     }
 
